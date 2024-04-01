@@ -1,0 +1,170 @@
+#![allow(non_snake_case)]
+#![allow(unused_imports)]
+#![allow(unused_must_use)]
+#![allow(unreachable_code)]
+use std::borrow::Borrow;
+use std::fs::{read, File};
+use std::io::{BufRead, BufReader};
+use std::io::{Seek, Write};
+use std::process::exit;
+use std::{error, io};
+
+fn main() -> io::Result<()> {
+    println!("HELLO!!!!");
+
+    // ABOUT AGES
+
+    let mut textFile = File::open("./../customerAge.txt")?;
+    let mut wekaFile = File::create("./../empAge.arff")?;
+    let mut reader = io::BufReader::new(textFile);
+
+    let headerText = "@relation \"empAge\"\n@attribute id string\n@attribute age numeric\n\n@data";
+    //den xreiazetai edw pera ordinal kathws einai 1-1 oi times id-age
+    let mut headerFlag = writeln!(wekaFile, "{}", headerText); //writing the arff header
+    if headerFlag.is_err() {
+        // header writeln  check
+        exit(1);
+    }
+
+    // Iterate,replace,write
+    println!("WRITING AGES");
+    formatWriteARFF(reader, wekaFile, 0);
+    println!("DONE AGES");
+
+    // ABOUT PRODUCTS
+
+    //re init our file pointers and reader
+    textFile = File::open("./../customerBuys.txt")?;
+    wekaFile = File::create("./../empProduct.arff")?;
+    reader = io::BufReader::new(textFile);
+
+    //edw tha einai string kai oxi literal giati thelw to .push .pop .push_str method
+    let mut headerString = "@relation \"empProduct\"\n@attribute id ".to_owned();
+
+    headerString = nominalStack(headerString, reader, 0); //searching+creating the nominal class for the products
+
+    //re init because it was "moved during" nominalstack(),just rust things
+    textFile = File::open("./../customerBuys.txt")?;
+    reader = io::BufReader::new(textFile);
+    headerString.push_str("\n@attribute purchaseDate");
+    headerString = nominalStack(headerString, reader, 1);
+
+    headerString.push_str("\n@attribute product ");
+
+    textFile = File::open("./../customerBuys.txt")?;
+    reader = io::BufReader::new(textFile);
+
+    headerString = nominalStack(headerString, reader, 2);
+    headerString.push_str("\n\n@data");
+
+    headerFlag = writeln!(wekaFile, "{}", headerString); //writing the arff header
+    if headerFlag.is_err() {
+        // header writeln  check
+        exit(1);
+    }
+    println!("WRITING PRODUCTS");
+
+    textFile = File::open("./../customerBuys.txt")?;
+    reader = io::BufReader::new(textFile);
+
+    formatWriteARFF(reader, wekaFile, 1);
+
+    println!("DONE PRODUCTS");
+
+    Ok(())
+}
+
+fn nominalStack(mut headerString: String, reader: BufReader<File>, col: usize) -> String {
+    let mut sVec: Vec<String> = Vec::new(); //the explaination if the vector's existance is in the if statement below
+    for line in reader.lines() {
+        match line {
+            Ok(content) => {
+                let content2 = content.replace('\t', ",");
+                let lineParts: Vec<&str> = content2.split(',').collect(); //collecting all of them in one vector
+                let greeklish = transliterate_greek_to_english(lineParts[col]);
+                if !sVec.contains(&greeklish) {
+                    // AMA KOITAW  STRING pou PX. exei to "boyturomeno" ama psaksw na dw ama yparxei to "boutyro" den tha mpei stin lista
+                    //kai auto einai problima giati yparxoun times mh dhlwmenes ston header me apotelesma na min to dexete to WEKA
+                    //etsi katalhfw ston vector
+                    sVec.push(greeklish);
+                }
+            }
+            Err(error) => {
+                println!("ERROR {}", error);
+            }
+        }
+    }
+    headerString.push('{');
+    for v in sVec {
+        let temp: String = "\'".to_owned() + &v + "\',";
+        headerString.push_str(&temp);
+    }
+    headerString.pop();
+    headerString.push('}');
+    // headerString.push_str("\n\n@data");
+
+    return headerString;
+}
+
+fn transliterate_greek_to_english(input: &str) -> String {
+    //prepei giati bgazei skoupidia o editor tou weka gia ellhnikous chars
+    let mut result = String::new();
+
+    for c in input.chars() {
+        match c {
+            'α' | 'Α' | 'ά' => result.push('a'),
+            'β' | 'Β' => result.push('b'),
+            'γ' | 'Γ' => result.push('g'),
+            'δ' | 'Δ' => result.push('d'),
+            'ε' | 'Ε' | 'έ' => result.push('e'),
+            'ζ' | 'Ζ' => result.push('z'),
+            'η' | 'Η' | 'ή' => result.push('h'),
+            'θ' | 'Θ' => result.push_str("th"),
+            'ι' | 'Ι' | 'ί' | 'ϊ' => result.push('i'),
+            'κ' | 'Κ' => result.push('k'),
+            'λ' | 'Λ' => result.push('l'),
+            'μ' | 'Μ' => result.push('m'),
+            'ν' | 'Ν' => result.push('n'),
+            'ξ' | 'Ξ' => result.push('x'),
+            'ο' | 'Ο' | 'ό' => result.push('o'),
+            'π' | 'Π' => result.push('p'),
+            'ρ' | 'Ρ' => result.push('r'),
+            'σ' | 'Σ' => result.push('s'),
+            'τ' | 'Τ' => result.push('t'),
+            'υ' | 'Υ' | 'ύ' => result.push('y'),
+            'φ' | 'Φ' => result.push('f'),
+            'χ' | 'Χ' => result.push('x'),
+            'ψ' | 'Ψ' => result.push_str("ps"),
+            'ω' | 'Ω' | 'ώ' => result.push('o'),
+            'ς' => result.push('s'),
+            _ => result.push(c),
+        }
+    }
+
+    result
+}
+
+fn formatWriteARFF(reader: BufReader<File>, mut wekaFile: File, flag: u32) {
+    println!("Entering line loop");
+    for line in reader.lines() {
+        match line {
+            Ok(content) => {
+                //arr[5] to \t
+                // println!("{:?}", content);
+                let mut content2 = content.replace('\t', ",");
+                if flag == 1 {
+                    //****"only in the products file" flag*****
+
+                    let vector: Vec<&str> = content2.split(',').collect(); //collecting all of them in one vector
+                    let tritos =
+                        "\'".to_owned() + &transliterate_greek_to_english(vector[2]) + "\'"; //appending quotes to the start/end of the greeklish words because they have empty chars
+                    content2 = vector[0].to_owned() + "," + vector[1] + "," + &tritos;
+                }
+                writeln!(wekaFile, "{}", content2); // the "{}" acts as a placeholder which is replaced by line.unwrap
+            }
+            Err(error) => {
+                println!("something's wrong here reader.lines {}", error);
+            }
+        }
+    }
+}
